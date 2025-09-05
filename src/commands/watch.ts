@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
-import { getPrice, getCached } from '../lib/prices.js';
-import { toFixedNice, upper, nowKST } from '../lib/util.js';
+import { getPrice, getCached } from '../lib/prices';
+import { toFixedNice, upper, nowKST } from '../lib/util';
 
 const MAX_MINUTES = 60;
 
