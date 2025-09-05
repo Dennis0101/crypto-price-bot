@@ -1,7 +1,7 @@
 // src/index.ts
 import { Client, GatewayIntentBits, REST, Routes, Events, Interaction } from 'discord.js';
-import * as price from './commands/price.js';
-import * as watch from './commands/watch.js';
+import * as price from './commands/price';
+import * as watch from './commands/watch';
 
 const commands = [price, watch];
 
