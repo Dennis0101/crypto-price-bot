@@ -4,25 +4,25 @@ import { ensurePanel, handleButton, handleModal } from './panel';
 import * as price from './commands/price';
 import * as watch from './commands/watch';
 
-const commands = [price, watch];
-
 async function main() {
   const token = process.env.DISCORD_TOKEN;
   const channelId = process.env.CHANNEL_ID;
 
   if (!token) {
-    throw new Error('❌ 환경 변수 DISCORD_TOKEN이 필요합니다.');
+    throw new Error('❌ DISCORD_TOKEN 환경 변수가 필요합니다.');
   }
 
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
+  // ✅ 봇이 준비되었을 때 패널 띄우기
   client.once(Events.ClientReady, async () => {
     console.log(`✅ Logged in as ${client.user?.tag}`);
     if (channelId) {
-      await ensurePanel(client, channelId); // 채널에 패널 생성/유지
+      await ensurePanel(client, channelId);
     }
   });
 
+  // ✅ 버튼/모달 핸들링
   client.on(Events.InteractionCreate, async (i: Interaction) => {
     if (i.isButton()) return handleButton(i);
     if (i.isModalSubmit()) return handleModal(i);
