@@ -7,28 +7,32 @@ const commands = [price, watch];
 
 async function registerCommandsGlobally(appId: string, token: string) {
   const rest = new REST({ version: '10' }).setToken(token);
-  await rest.put(
-    Routes.applicationCommands(appId),
-    { body: commands.map((c) => c.data.toJSON()) }
-  );
+  await rest.put(Routes.applicationCommands(appId), {
+    body: commands.map((c) => c.data.toJSON()),
+  });
   console.log('✓ Slash commands registered (global)');
 }
 
 async function main() {
   const token = process.env.DISCORD_TOKEN;
   const appId = process.env.DISCORD_APP_ID;
+  const wantRegister = process.argv.includes('--register');
 
-  if (!token || !appId) {
-    throw new Error('❌ 환경 변수 DISCORD_TOKEN 또는 DISCORD_APP_ID가 설정되지 않았습니다.');
+  // ✅ 항상 필요한 건 토큰
+  if (!token) {
+    throw new Error('❌ 환경 변수 DISCORD_TOKEN이 설정되지 않았습니다.');
+  }
+  // ✅ 커맨드 등록을 하려는 경우에만 APP_ID 필요
+  if (wantRegister && !appId) {
+    throw new Error('❌ --register 실행에는 DISCORD_APP_ID가 필요합니다.');
   }
 
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
   client.once(Events.ClientReady, async () => {
     console.log(`✅ Logged in as ${client.user?.tag}`);
-
-    if (process.argv.includes('--register')) {
-      await registerCommandsGlobally(appId, token);
+    if (wantRegister) {
+      await registerCommandsGlobally(appId!, token);
       process.exit(0);
     }
   });
@@ -36,7 +40,6 @@ async function main() {
   client.on(Events.InteractionCreate, async (i: Interaction) => {
     try {
       if (!i.isChatInputCommand()) return;
-
       if (i.commandName === price.data.name) return price.run(i);
       if (i.commandName === watch.data.name) return watch.run(i);
     } catch (e) {
@@ -47,7 +50,7 @@ async function main() {
     }
   });
 
-  // ✅ 여기서 바로 process.env 사용
+  // 🔑 토큰만으로 로그인
   await client.login(process.env.DISCORD_TOKEN);
 }
 
