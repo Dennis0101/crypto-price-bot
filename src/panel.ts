@@ -5,8 +5,8 @@ import {
   TextChannel, NewsChannel, ThreadChannel,
   Client, ButtonInteraction, ModalSubmitInteraction, PermissionFlagsBits
 } from 'discord.js';
-import { getPrice } from './lib/prices';
-import { toFixedNice, upper, nowKST } from './lib/util';
+import { getPrice, getKimchi } from './lib/prices';           // ✅ getKimchi 추가
+import { toFixedNice, upper, nowKST, toPct } from './lib/util'; // ✅ toPct 추가
 
 export async function ensurePanel(client: Client, channelId: string) {
   console.log('[panel] ensurePanel start. CHANNEL_ID =', channelId);
@@ -29,12 +29,13 @@ export async function ensurePanel(client: Client, channelId: string) {
 
     const embed = new EmbedBuilder()
       .setTitle('💹 코인 패널')
-      .setDescription('버튼을 눌러 바로 실행하세요.')
+      .setDescription('버튼을 눌러 바로 실행하세요.\n\n실시간 시세/감시/김프') // ✅ 설명 보강
       .setFooter({ text: '실시간 시세/감시 패널' });
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId('panel:price').setLabel('현재가 조회').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId('panel:watch').setLabel('실시간 감시 시작').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('panel:kimchi').setLabel('김프 보기').setStyle(ButtonStyle.Secondary), // ✅ 김프 버튼
     );
 
     await (ch as TextChannel).send({ embeds: [embed], components: [row] });
@@ -67,6 +68,20 @@ export async function handleButton(i: ButtonInteraction) {
     modal.addComponents(
       new ActionRowBuilder<TextInputBuilder>().addComponents(sym),
       new ActionRowBuilder<TextInputBuilder>().addComponents(quo),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(mins),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(sec),
+    );
+    return i.showModal(modal);
+  }
+
+  // ✅ 김프 버튼 → 모달
+  if (i.customId === 'panel:kimchi') {
+    const modal = new ModalBuilder().setCustomId('modal:kimchi').setTitle('김치 프리미엄');
+    const sym  = new TextInputBuilder().setCustomId('sym').setLabel('심볼 (예: BTC)').setStyle(TextInputStyle.Short).setRequired(true);
+    const mins = new TextInputBuilder().setCustomId('mins').setLabel('분(선택, 1~60 | 없으면 단발)').setStyle(TextInputStyle.Short).setRequired(false);
+    const sec  = new TextInputBuilder().setCustomId('sec').setLabel('주기초(선택, 2~60 | 기본 5)').setStyle(TextInputStyle.Short).setRequired(false);
+    modal.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(sym),
       new ActionRowBuilder<TextInputBuilder>().addComponents(mins),
       new ActionRowBuilder<TextInputBuilder>().addComponents(sec),
     );
@@ -120,6 +135,68 @@ export async function handleModal(i: ModalSubmitInteraction) {
       }, periodSec * 1000);
     } catch (e: any) {
       await i.editReply(`watch 시작 실패: ${e.message ?? e}`);
+    }
+    return;
+  }
+
+  // ✅ 김프 모달 처리 (단발/실시간)
+  if (i.customId === 'modal:kimchi') {
+    const base = i.fields.getTextInputValue('sym').trim().toUpperCase();
+    const minsStr = i.fields.getTextInputValue('mins')?.trim();
+    const secStr  = i.fields.getTextInputValue('sec')?.trim();
+
+    const watchMode = !!minsStr || !!secStr;
+
+    if (!watchMode) {
+      // 단발 조회
+      await i.deferReply({ ephemeral: false });
+      try {
+        const k = await getKimchi(base);
+        const emb = new EmbedBuilder()
+          .setTitle(`🇰🇷 김치 프리미엄 — ${upper(base)}`)
+          .addFields(
+            { name: '업비트 (KRW)', value: `${toFixedNice(k.krw)} KRW`, inline: true },
+            { name: '바이낸스 (USDT)', value: `${toFixedNice(k.usdt)} USDT`, inline: true },
+            { name: 'USD/KRW', value: `${toFixedNice(k.usdkrw, 4)} KRW`, inline: true },
+            { name: '김프', value: `**${toPct(k.premium, 2)}**`, inline: false },
+          )
+          .setFooter({ text: `KST ${nowKST()}` });
+        await i.editReply({ embeds: [emb] });
+      } catch (e: any) {
+        await i.editReply(`김프 조회 실패: ${e?.message ?? e}`);
+      }
+      return;
+    }
+
+    // 실시간 갱신
+    const minutes = Math.max(1, Math.min(60, parseInt(minsStr || '10', 10)));
+    const periodSec = Math.max(2, Math.min(60, parseInt(secStr || '5', 10)));
+
+    await i.deferReply();
+    const makeEmbed = async () => {
+      const k = await getKimchi(base);
+      return new EmbedBuilder()
+        .setTitle(`👀 김치 프리미엄 감시 — ${upper(base)}`)
+        .addFields(
+          { name: '업비트 (KRW)', value: `${toFixedNice(k.krw)} KRW`, inline: true },
+          { name: '바이낸스 (USDT)', value: `${toFixedNice(k.usdt)} USDT`, inline: true },
+          { name: 'USD/KRW', value: `${toFixedNice(k.usdkrw, 4)} KRW`, inline: true },
+          { name: '김프', value: `**${toPct(k.premium, 2)}**`, inline: false },
+        )
+        .setFooter({ text: `KST ${nowKST()} • ${periodSec}s 갱신` });
+    };
+
+    try {
+      const emb = await makeEmbed();
+      const msg = await i.editReply({ embeds: [emb] });
+      let elapsed = 0;
+      const timer = setInterval(async () => {
+        try { const e2 = await makeEmbed(); await (msg as any).edit({ embeds: [e2] }); } catch {}
+        elapsed += periodSec;
+        if (elapsed >= minutes * 60) clearInterval(timer);
+      }, periodSec * 1000);
+    } catch (e: any) {
+      await i.editReply(`김프 감시 시작 실패: ${e?.message ?? e}`);
     }
   }
 }
