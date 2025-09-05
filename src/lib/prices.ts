@@ -125,3 +125,42 @@ export async function getPrice(baseRaw: string, quote: Quote) {
 export function getCached(base: string, quote: Quote) {
   return priceCache.get(`${base.toUpperCase()}:${quote}`);
 }
+
+// ======================================================
+// ✅ 여기서부터 김치 프리미엄 계산 기능 추가
+// ======================================================
+
+// --- USD/KRW 환율 캐시 & 조회 (5분 캐시) ---
+const fxCache = new Map<string, { rate: number; ts: number }>();
+
+async function fetchUsdKrw(): Promise<number> {
+  const cached = fxCache.get('USD:KRW');
+  if (cached && Date.now() - cached.ts < 5 * 60_000) return cached.rate;
+
+  const { data } = await axios.get(
+    'https://api.exchangerate.host/latest?base=USD&symbols=KRW',
+    { headers: { Accept: 'application/json' } }
+  );
+  const rate = data?.rates?.KRW;
+  if (!rate) throw new Error('USD/KRW 환율 조회 실패');
+  fxCache.set('USD:KRW', { rate, ts: Date.now() });
+  return rate;
+}
+
+// --- 김치 프리미엄 계산 ---
+// 공식: KRW / (USDT * USDKRW) - 1
+export async function getKimchi(baseRaw: string) {
+  const base = baseRaw.toUpperCase();
+  const [krw, usdt, usdkrw] = await Promise.all([
+    getPrice(base, 'KRW'),
+    getPrice(base, 'USDT'),
+    fetchUsdKrw(),
+  ]);
+  const premium = krw / (usdt * usdkrw) - 1; // 비율 (0.036 = 3.6%)
+
+  return {
+    base, krw, usdt, usdkrw, premium,
+    ts: Date.now(),
+    src: { krw: 'upbit-rest', usdt: 'binance-rest', fx: 'exchangerate.host' }
+  };
+}
